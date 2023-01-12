@@ -74,6 +74,7 @@
 
 static const MemMapEntry virt_memmap[] = {
     [VIRT_DEBUG] =        {        0x0,         0x100 },
+    [VIRT_CSR] =          {      0x400,         0xc00 },
     [VIRT_MROM] =         {     0x1000,        0xf000 },
     [VIRT_TEST] =         {   0x100000,        0x1000 },
     [VIRT_RTC] =          {   0x101000,        0x1000 },
@@ -1339,12 +1340,52 @@ static void virt_machine_done(Notifier *notifier, void *data)
     }
 }
 
+static void csr_mem_ops_wr(void *opaque, hwaddr addr,
+                            uint64_t value, unsigned size) {
+    riscv_csr_operations ops;
+    uint32_t csrnums[18] = {0x300, 0xC00, 0x340, 0x305, 0x304, 0x344,
+    0x341, 0x343, 0x342, 0xf11, 0x301,0xf14,0x3a0,0x3b0};
+    CPURISCVState* env = &RISCV_CPU(qemu_get_cpu(0))->env;
+    if(((addr&0xff)/4) > 18)
+        return;
+    int csrno = csrnums[((addr&0xff)/4)];
+    riscv_get_csr_ops(csrno,&ops);
+    if(ops.write){
+        ops.write(env,csrno,value);
+    } else if (ops.op) {
+        ops.op(env,csrno,NULL,value,UINT32_MAX);
+    }
+}
+static uint64_t csr_mem_ops_rd(void *opaque, hwaddr addr, unsigned size){
+    uint32_t value = 0;
+    riscv_csr_operations ops;
+    uint32_t csrnums[18] = {0x300, 0xC00, 0x340, 0x305, 0x304, 0x344,
+    0x341, 0x343, 0x342, 0xf11, 0x301,0xf14,0x3a0,0x3b0};
+    CPURISCVState* env = &RISCV_CPU(qemu_get_cpu(0))->env;
+
+    if(((addr&0xff)/4) > 18)
+        return 0;
+    int csrno = csrnums[((addr&0xff)/4)];
+    riscv_get_csr_ops(csrno,&ops);
+    if(ops.read){
+       ops.read(env,csrno,&value);
+    } else if (ops.op) {
+        ops.op(env,csrno,&value,0,0);
+    }
+    return value;
+}
+static const MemoryRegionOps csr_mem_ops = {
+    .read = csr_mem_ops_rd,
+    .write = csr_mem_ops_wr,
+};
+
 static void virt_machine_init(MachineState *machine)
 {
     const MemMapEntry *memmap = virt_memmap;
     RISCVVirtState *s = RISCV_VIRT_MACHINE(machine);
     MemoryRegion *system_memory = get_system_memory();
     MemoryRegion *mask_rom = g_new(MemoryRegion, 1);
+    MemoryRegion *csr_ram = g_new(MemoryRegion, 1);
     char *soc_name;
     DeviceState *mmio_irqchip, *virtio_irqchip, *pcie_irqchip;
     int i, base_hartid, hart_count;
@@ -1478,6 +1519,10 @@ static void virt_machine_init(MachineState *machine)
     /* boot rom */
     memory_region_init_rom(mask_rom, NULL, "riscv_virt_board.mrom",
                            memmap[VIRT_MROM].size, &error_fatal);
+    memory_region_init_io(csr_ram, NULL, &csr_mem_ops, NULL,"csr_ram",
+                           memmap[VIRT_CSR].size);
+    memory_region_add_subregion(system_memory, memmap[VIRT_CSR].base,
+                                csr_ram);
     memory_region_add_subregion(system_memory, memmap[VIRT_MROM].base,
                                 mask_rom);
 

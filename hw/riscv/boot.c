@@ -299,11 +299,12 @@ void riscv_setup_rom_reset_vec(MachineState *machine, RISCVHartArrayState *harts
         start_addr_hi32 = start_addr >> 32;
         fdt_load_addr_hi32 = fdt_load_addr >> 32;
     }
+
     /* reset vector */
     uint32_t reset_vec[10] = {
         0x00000297,                  /* 1:  auipc  t0, %pcrel_hi(fw_dyn) */
         0x02828613,                  /*     addi   a2, t0, %pcrel_lo(1b) */
-        0xf1402573,                  /*     csrr   a0, mhartid  */
+        0x00000513,                  /*     csrr   a0, mhartid  */
         0,
         0,
         0x00028067,                  /*     jr     t0 */
